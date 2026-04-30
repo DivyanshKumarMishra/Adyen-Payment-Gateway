@@ -1,6 +1,9 @@
 import { useState, useMemo } from "react";
 import ProductGrid from "./components/ProductGrid/ProductGrid";
 import Checkout from "./components/Checkout/Checkout";
+import Login from "./components/Login/Login";
+import NavBar from "./components/NavBar/NavBar";
+import { useAuth } from "./context/AuthContext";
 import type { Product } from "./data/products";
 
 function getProductFromURL(): Product | null {
@@ -24,16 +27,33 @@ function getProductFromURL(): Product | null {
 }
 
 function App() {
+  const { user, loading } = useAuth();
   const urlProduct = useMemo(() => getProductFromURL(), []);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(urlProduct);
+  const [demoMode, setDemoMode] = useState(false);
 
-  if (selectedProduct) {
+  if (loading) {
     return (
-      <Checkout product={selectedProduct} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <span style={{ color: "#6b7280", fontSize: 15 }}>Loading…</span>
+      </div>
     );
   }
 
-  return <ProductGrid onBuy={setSelectedProduct} />;
+  if (!user && !demoMode) {
+    return <Login onDemoAccess={() => setDemoMode(true)} />;
+  }
+
+  return (
+    <>
+      <NavBar />
+      {selectedProduct ? (
+        <Checkout product={selectedProduct} />
+      ) : (
+        <ProductGrid onBuy={setSelectedProduct} />
+      )}
+    </>
+  );
 }
 
 export default App;
