@@ -1,31 +1,24 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
 
 const env = process.env.NODE_ENV || "dev";
 dotenv.config({ path: `.env.${env}` });
 
 const app = express();
+const { PORT } = require("./config");
+const migrate = require("./db/migrate");
 
-const { PORT, HOST } = require("./config");
-
-const options = {
-  origin: true,
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true,
-};
-
-app.use(cors(options));
+app.use(cors({ origin: true, methods: ["GET", "POST", "PUT", "DELETE"], credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 const adyenRouter = require("./routes/adyen.route");
+const authRouter = require("./routes/auth.route");
 
-app.use("/", (req, res, next) => {
-  // console.log("Request received");
-  next();
-});
-
+app.use("/api/auth", authRouter);
 app.use("/api/adyen", adyenRouter);
 
 app.use((err, req, res, next) => {
@@ -35,11 +28,13 @@ app.use((err, req, res, next) => {
 
 async function startServer() {
   try {
+    await migrate();
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server is running on http://0.0.0.0:${PORT}`);
     });
   } catch (error) {
     console.error("Error starting server:", error);
+    process.exit(1);
   }
 }
 
