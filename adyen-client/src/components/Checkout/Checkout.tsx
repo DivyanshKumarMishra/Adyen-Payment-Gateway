@@ -8,12 +8,12 @@ import type {
 import "@adyen/adyen-web/styles/adyen.css";
 import "./Checkout.css";
 import type { Product } from "../../data/products";
+import { API } from "../../constants/api";
 
 const CLIENT_KEY = import.meta.env.VITE_ADYEN_CLIENT_KEY;
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
 const API_URL =
   new URLSearchParams(window.location.search).get("apiUrl") ||
-  `${API_BASE}/api/adyen`;
+  API.adyen.base;
 
 type CheckoutState = "loading" | "ready" | "success" | "failed";
 type LogLevel = "log" | "warn" | "error";
