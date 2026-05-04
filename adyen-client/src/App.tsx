@@ -30,7 +30,6 @@ function App() {
   const { user, loading } = useAuth();
   const urlProduct = useMemo(() => getProductFromURL(), []);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(urlProduct);
-  const [demoMode, setDemoMode] = useState(false);
 
   if (loading) {
     return (
@@ -40,8 +39,8 @@ function App() {
     );
   }
 
-  if (!user && !demoMode) {
-    return <Login onDemoAccess={() => setDemoMode(true)} />;
+  if (!user) {
+    return <Login />;
   }
 
   return (

@@ -1,35 +1,64 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { onAuthStateChanged, type User } from "firebase/auth";
-import { auth } from "../firebase/config";
-import { handleRedirectResult, signInWithSAML, signOut } from "../firebase/auth";
+import { handleRedirectResult, signInWithSAML, signInWithEmail, registerWithEmail, signOut as firebaseSignOut } from "../firebase/auth";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
+
+export interface SessionUser {
+  uid: string;
+  email: string;
+}
 
 interface AuthContextValue {
-  user: User | null;
+  user: SessionUser | null;
   loading: boolean;
-  signIn: () => Promise<void>;
+  signInWithSSO: () => Promise<void>;
+  signInWithPassword: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Handle redirect result from IdP on page load
     handleRedirectResult().catch(console.error);
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
-    });
-
-    return unsubscribe;
+    fetch(`${API_BASE}/api/auth/me`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setUser(data?.user ?? null))
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
   }, []);
 
+  async function signInWithPassword(email: string, password: string) {
+    const idToken = await signInWithEmail(email, password);
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ idToken }),
+    });
+    if (!res.ok) throw new Error("Login failed");
+    const data = await res.json();
+    setUser(data.user);
+  }
+
+  async function register(email: string, password: string) {
+    await registerWithEmail(email, password);
+    await firebaseSignOut();
+  }
+
+  async function signOut() {
+    await fetch(`${API_BASE}/api/auth/logout`, { method: "POST", credentials: "include" });
+    await firebaseSignOut();
+    setUser(null);
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn: signInWithSAML, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signInWithSSO: signInWithSAML, signInWithPassword, register, signOut }}>
       {children}
     </AuthContext.Provider>
   );

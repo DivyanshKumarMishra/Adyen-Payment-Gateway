@@ -1,14 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 
-// TODO: Replace with your Firebase project config from Firebase Console > Project Settings
 const firebaseConfig = {
-  apiKey: "REPLACE_WITH_API_KEY",
-  authDomain: "REPLACE_WITH_AUTH_DOMAIN",
-  projectId: "REPLACE_WITH_PROJECT_ID",
-  storageBucket: "REPLACE_WITH_STORAGE_BUCKET",
-  messagingSenderId: "REPLACE_WITH_MESSAGING_SENDER_ID",
-  appId: "REPLACE_WITH_APP_ID",
+  apiKey: "AIzaSyB9CkYZHAseO9J7FsbHGnV3hBmwCiq5LA8",
+  authDomain: "auth-and-session-management.firebaseapp.com",
+  projectId: "auth-and-session-management",
+  storageBucket: "auth-and-session-management.firebasestorage.app",
+  messagingSenderId: "372136371797",
+  appId: "1:372136371797:web:0f38d52d20b09e127596dc",
 };
 
 const app = initializeApp(firebaseConfig);

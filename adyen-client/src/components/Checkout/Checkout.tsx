@@ -10,9 +10,10 @@ import "./Checkout.css";
 import type { Product } from "../../data/products";
 
 const CLIENT_KEY = import.meta.env.VITE_ADYEN_CLIENT_KEY;
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
 const API_URL =
   new URLSearchParams(window.location.search).get("apiUrl") ||
-  import.meta.env.VITE_API_URL;
+  `${API_BASE}/api/adyen`;
 
 type CheckoutState = "loading" | "ready" | "success" | "failed";
 type LogLevel = "log" | "warn" | "error";
