@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { IDLE_TIMEOUT_MINUTES } = require("../config");
 
 async function requireSession(req, res, next) {
   const sid = req.cookies?.sid;
@@ -8,11 +9,12 @@ async function requireSession(req, res, next) {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, user_id, email, expires_at
+      `SELECT id, user_id, email, last_active_at, absolute_expires_at
        FROM sessions
        WHERE id = $1
          AND invalidated_at IS NULL
-         AND expires_at > now()`,
+         AND now() - last_active_at < INTERVAL '${IDLE_TIMEOUT_MINUTES} minutes'
+         AND now() < absolute_expires_at`,
       [sid]
     );
 

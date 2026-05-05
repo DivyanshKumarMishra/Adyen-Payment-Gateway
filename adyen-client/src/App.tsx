@@ -3,6 +3,7 @@ import ProductGrid from "./components/ProductGrid/ProductGrid";
 import Checkout from "./components/Checkout/Checkout";
 import Login from "./components/Login/Login";
 import NavBar from "./components/NavBar/NavBar";
+import SessionWarningModal from "./components/SessionWarningModal/SessionWarningModal";
 import { useAuth } from "./context/AuthContext";
 import type { Product } from "./data/products";
 
@@ -45,6 +46,7 @@ function App() {
 
   return (
     <>
+      <SessionWarningModal />
       <NavBar />
       {selectedProduct ? (
         <Checkout product={selectedProduct} />
