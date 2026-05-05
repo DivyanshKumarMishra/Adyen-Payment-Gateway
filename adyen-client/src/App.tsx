@@ -27,7 +27,7 @@ function getProductFromURL(): Product | null {
 }
 
 function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionExpired } = useAuth();
   const urlProduct = useMemo(() => getProductFromURL(), []);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(urlProduct);
 
@@ -40,7 +40,7 @@ function App() {
   }
 
   if (!user) {
-    return <Login />;
+    return <Login sessionExpired={sessionExpired} />;
   }
 
   return (

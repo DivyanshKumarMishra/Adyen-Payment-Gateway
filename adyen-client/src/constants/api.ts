@@ -5,6 +5,7 @@ export const API = {
     login: `${API_BASE}/api/auth/login`,
     logout: `${API_BASE}/api/auth/logout`,
     me: `${API_BASE}/api/auth/me`,
+    sessionExpired: `${API_BASE}/api/auth/events/session-expired`,
   },
   adyen: {
     base: `${API_BASE}/api/adyen`,

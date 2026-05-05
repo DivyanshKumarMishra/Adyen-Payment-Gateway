@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { handleRedirectResult, signInWithSAML, signInWithEmail, registerWithEmail, signOut as firebaseSignOut } from "../firebase/auth";
 import { API } from "../constants/api";
 
@@ -23,28 +23,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
-  const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
 
-  const clearSession = useCallback((expired = false) => {
-    if (expiryTimer.current) {
-      clearTimeout(expiryTimer.current);
-      expiryTimer.current = null;
-    }
-    fetch(API.auth.logout, { method: "POST", credentials: "include" }).catch(() => {});
-    firebaseSignOut().catch(() => {});
-    setUser(null);
-    setSessionExpired(expired);
-  }, []);
+  function openSSE() {
+    if (sseRef.current) sseRef.current.close();
 
-  const scheduleExpiry = useCallback((expiresAt: string) => {
-    if (expiryTimer.current) clearTimeout(expiryTimer.current);
-    const ms = new Date(expiresAt).getTime() - Date.now();
-    if (ms <= 0) {
-      clearSession(true);
-      return;
+    const es = new EventSource(API.auth.sessionExpired, { withCredentials: true });
+
+    es.addEventListener("session-expired", () => {
+      console.log("[Auth] Session expired — invalidating and redirecting to login");
+      es.close();
+      sseRef.current = null;
+      fetch(API.auth.logout, { method: "POST", credentials: "include" }).catch(() => {});
+      firebaseSignOut().catch(() => {});
+      setUser(null);
+      setSessionExpired(true);
+    });
+
+    sseRef.current = es;
+  }
+
+  function closeSSE() {
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
     }
-    expiryTimer.current = setTimeout(() => clearSession(true), ms);
-  }, [clearSession]);
+  }
 
   useEffect(() => {
     handleRedirectResult().catch(console.error);
@@ -54,16 +58,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         if (data?.user) {
           setUser(data.user);
-          scheduleExpiry(data.expiresAt);
+          openSSE();
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    return () => {
-      if (expiryTimer.current) clearTimeout(expiryTimer.current);
-    };
-  }, [scheduleExpiry]);
+    return () => closeSSE();
+  }, []);
 
   async function signInWithPassword(email: string, password: string) {
     const idToken = await signInWithEmail(email, password);
@@ -77,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     setSessionExpired(false);
     setUser(data.user);
-    scheduleExpiry(data.expiresAt);
+    openSSE();
   }
 
   async function register(email: string, password: string) {
@@ -86,7 +88,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    clearSession(false);
+    closeSSE();
+    fetch(API.auth.logout, { method: "POST", credentials: "include" }).catch(() => {});
+    firebaseSignOut().catch(() => {});
+    setUser(null);
+    setSessionExpired(false);
   }
 
   return (

@@ -4,7 +4,11 @@ import "./Login.css";
 
 type Mode = "signin" | "register";
 
-export default function Login() {
+interface LoginProps {
+  sessionExpired?: boolean;
+}
+
+export default function Login({ sessionExpired }: LoginProps) {
   const { signInWithSSO, signInWithPassword, register } = useAuth();
 
   const [mode, setMode] = useState<Mode>("signin");
@@ -57,6 +61,7 @@ export default function Login() {
         <h1 className="login-title">{mode === "signin" ? "Sign in to continue" : "Create an account"}</h1>
         <p className="login-subtitle">Access the payment portal.</p>
 
+        {sessionExpired && <p className="login-error">Your session has expired. Please sign in again.</p>}
         {error && <p className="login-error">{error}</p>}
         {success && <p className="login-success">{success}</p>}
 

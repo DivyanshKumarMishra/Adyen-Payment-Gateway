@@ -12,7 +12,8 @@ const login = async (req, res) => {
     const decoded = await admin.auth().verifyIdToken(idToken);
     const { uid, email } = decoded;
 
-    const expiresAt = new Date(Date.now() + SESSION_MINUTES * 60 * 1000);
+    // const expiresAt = new Date(Date.now() + SESSION_MINUTES * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 30 * 1000);
 
     const { rows } = await pool.query(
       `INSERT INTO sessions (user_id, email, expires_at)
@@ -28,7 +29,8 @@ const login = async (req, res) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === "prod",
         sameSite: "strict",
-        maxAge: SESSION_MINUTES * 60 * 1000,
+        // maxAge: SESSION_MINUTES * 60 * 1000,
+        maxAge: 30 * 1000,
         path: "/",
       })
       .json({ user: { uid, email }, expiresAt });
