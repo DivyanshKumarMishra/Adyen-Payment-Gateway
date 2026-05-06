@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { handleRedirectResult, signInWithSAML, signInWithEmail, registerWithEmail, signOut as firebaseSignOut } from "../firebase/auth";
 import { API } from "../constants/api";
 import { useActivityTracking } from "../hooks/useActivityTracking";
@@ -9,12 +9,18 @@ export interface SessionUser {
   email: string;
 }
 
+interface SessionData {
+  user: SessionUser;
+  idleExpiresAt: string;
+  absoluteExpiresAt: string;
+}
+
 interface AuthContextValue {
   user: SessionUser | null;
   loading: boolean;
   sessionExpired: boolean;
   showWarning: boolean;
-  dismissWarning: () => void;
+  dismissWarning: () => Promise<void>;
   signInWithSSO: () => Promise<void>;
   signInWithPassword: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
@@ -31,6 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessionExpired, setExpired]  = useState(false);
   const [showWarning, setShowWarning] = useState(false);
 
+  // absoluteExpiresAt is needed in heartbeat interval — keep in ref to avoid stale closures
+  const absoluteExpiresAtRef = useRef<string>("");
+
   const activity = useActivityTracking({
     onWarning: () => setShowWarning(true),
     onLogout:  async () => { await performLogout(true); },
@@ -44,28 +53,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setExpired(expired);
     setShowWarning(false);
-  // activity.stop and execute are stable refs — omitting to avoid circular dep with useActivityTracking
+  // activity.stop and execute are stable — omitting to avoid circular dep
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Register global 401 handler — any protected fetch across the app triggers logout
   useEffect(() => {
     setUnauthorizedHandler(async () => { await performLogout(true); });
   }, [performLogout]);
 
-  function startSession(sessionUser: SessionUser) {
+  function startSession({ user: sessionUser, idleExpiresAt, absoluteExpiresAt }: SessionData) {
+    absoluteExpiresAtRef.current = absoluteExpiresAt;
     setUser(sessionUser);
     setExpired(false);
     setShowWarning(false);
-    activity.start();
+    activity.start(idleExpiresAt, absoluteExpiresAt);
   }
 
   useEffect(() => {
     handleRedirectResult().catch(console.error);
 
     const init = async () => {
-      // skipAuthCheck — 401 here just means no active session, not an error
-      const data = await execute<{ user: SessionUser }>(API.auth.me, { skipAuthCheck: true });
-      if (data?.user) startSession(data.user);
+      const data = await execute<SessionData>(API.auth.me, { skipAuthCheck: true });
+      if (data?.user) startSession(data);
       setLoading(false);
     };
 
@@ -76,15 +84,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signInWithPassword(email: string, password: string) {
     const idToken = await signInWithEmail(email, password);
-    // skipAuthCheck — no session cookie yet at login time
-    const data = await execute<{ user: SessionUser }>(API.auth.login, {
+    const data = await execute<SessionData>(API.auth.login, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ idToken }),
       skipAuthCheck: true,
     });
     if (!data?.user) throw new Error("Login failed");
-    startSession(data.user);
+    startSession(data);
   }
 
   async function register(email: string, password: string) {
@@ -98,8 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function dismissWarning() {
     setShowWarning(false);
-    activity.resetIdleTimers();
-    await execute(API.auth.heartbeat, { method: "POST" });
+    // Force a heartbeat — server returns fresh idleExpiresAt to resync timers
+    const res = await execute<{ ok: boolean; idleExpiresAt: string }>(
+      API.auth.heartbeat, { method: "POST" }
+    );
+    if (res?.ok && res.idleExpiresAt) {
+      activity.updateIdleExpiry(res.idleExpiresAt, absoluteExpiresAtRef.current);
+    }
   }
 
   return (
