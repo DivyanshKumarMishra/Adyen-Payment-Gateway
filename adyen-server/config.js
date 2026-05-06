@@ -18,8 +18,9 @@ const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID;
 const FIREBASE_CLIENT_EMAIL = process.env.FIREBASE_CLIENT_EMAIL;
 const FIREBASE_PRIVATE_KEY = process.env.FIREBASE_PRIVATE_KEY;
 
-const IDLE_TIMEOUT_MINUTES = 10;
-const ABSOLUTE_MAX_HOURS = 1;
+// TEST VALUES — restore before production
+const IDLE_TIMEOUT_MINUTES = 1;        // 60s       | prod: 10
+const ABSOLUTE_MAX_HOURS   = 1 / 40;  // 90 seconds | prod: 1
 
 module.exports = {
   PORT,

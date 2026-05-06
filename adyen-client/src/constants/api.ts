@@ -6,7 +6,6 @@ export const API = {
     logout: `${API_BASE}/api/auth/logout`,
     me: `${API_BASE}/api/auth/me`,
     heartbeat: `${API_BASE}/api/auth/heartbeat`,
-    sessionExpired: `${API_BASE}/api/auth/events/session-expired`,
   },
   adyen: {
     base: `${API_BASE}/api/adyen`,

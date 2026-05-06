@@ -1,11 +1,8 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { handleRedirectResult, signInWithSAML, signInWithEmail, registerWithEmail, signOut as firebaseSignOut } from "../firebase/auth";
 import { API } from "../constants/api";
-
-const IDLE_TIMEOUT_MS   = 10 * 60 * 1000;
-const WARNING_AT_MS     =  8 * 60 * 1000;
-const HEARTBEAT_MS      = 60 * 1000;
-const ACTIVITY_EVENTS   = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"] as const;
+import { useActivityTracking } from "../hooks/useActivityTracking";
+import { useFetch, setUnauthorizedHandler } from "../hooks/useFetch";
 
 export interface SessionUser {
   uid: string;
@@ -27,111 +24,66 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]                 = useState<SessionUser | null>(null);
-  const [loading, setLoading]           = useState(true);
-  const [sessionExpired, setExpired]    = useState(false);
-  const [showWarning, setShowWarning]   = useState(false);
+  const { execute } = useFetch();
 
-  const sseRef          = useRef<EventSource | null>(null);
-  const warningTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const logoutTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const heartbeatTimer  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isActiveRef     = useRef(false);
+  const [user, setUser]               = useState<SessionUser | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [sessionExpired, setExpired]  = useState(false);
+  const [showWarning, setShowWarning] = useState(false);
 
-  // ── Activity tracking ───────────────────────────────────────────────
-  function resetIdleTimers() {
-    isActiveRef.current = true;
+  const activity = useActivityTracking({
+    onWarning: () => setShowWarning(true),
+    onLogout:  async () => { await performLogout(true); },
+    isPaused:  showWarning,
+  });
 
-    if (warningTimer.current)  clearTimeout(warningTimer.current);
-    if (logoutTimer.current)   clearTimeout(logoutTimer.current);
+  const performLogout = useCallback(async (expired = false) => {
+    activity.stop();
+    await execute(API.auth.logout, { method: "POST", skipAuthCheck: true });
+    await firebaseSignOut();
+    setUser(null);
+    setExpired(expired);
     setShowWarning(false);
+  // activity.stop and execute are stable refs — omitting to avoid circular dep with useActivityTracking
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    warningTimer.current = setTimeout(() => setShowWarning(true), WARNING_AT_MS);
-    logoutTimer.current  = setTimeout(() => performLogout(true), IDLE_TIMEOUT_MS);
-  }
+  // Register global 401 handler — any protected fetch across the app triggers logout
+  useEffect(() => {
+    setUnauthorizedHandler(async () => { await performLogout(true); });
+  }, [performLogout]);
 
-  function startActivityTracking() {
-    ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, resetIdleTimers, { passive: true }));
-    resetIdleTimers();
-
-    heartbeatTimer.current = setInterval(() => {
-      if (!isActiveRef.current) return;
-      isActiveRef.current = false;
-      fetch(API.auth.heartbeat, { method: "POST", credentials: "include" }).catch(() => {});
-    }, HEARTBEAT_MS);
-  }
-
-  function stopActivityTracking() {
-    ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, resetIdleTimers));
-    if (warningTimer.current)   clearTimeout(warningTimer.current);
-    if (logoutTimer.current)    clearTimeout(logoutTimer.current);
-    if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
-  }
-
-  // ── SSE ─────────────────────────────────────────────────────────────
-  function openSSE() {
-    if (sseRef.current) sseRef.current.close();
-    const es = new EventSource(API.auth.sessionExpired, { withCredentials: true });
-    es.addEventListener("session-expired", () => {
-      console.log("[Auth] Session expired — invalidating and redirecting to login");
-      es.close();
-      sseRef.current = null;
-      fetch(API.auth.logout, { method: "POST", credentials: "include" }).catch(() => {});
-      firebaseSignOut().catch(() => {});
-      stopActivityTracking();
-      setUser(null);
-      setExpired(true);
-    });
-    sseRef.current = es;
-  }
-
-  function closeSSE() {
-    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
-  }
-
-  // ── Session start / stop ────────────────────────────────────────────
   function startSession(sessionUser: SessionUser) {
     setUser(sessionUser);
     setExpired(false);
     setShowWarning(false);
-    openSSE();
-    startActivityTracking();
+    activity.start();
   }
 
-  function performLogout(expired = false) {
-    closeSSE();
-    stopActivityTracking();
-    fetch(API.auth.logout, { method: "POST", credentials: "include" }).catch(() => {});
-    firebaseSignOut().catch(() => {});
-    setUser(null);
-    setExpired(expired);
-    setShowWarning(false);
-  }
-
-  // ── Mount ────────────────────────────────────────────────────────────
   useEffect(() => {
     handleRedirectResult().catch(console.error);
 
-    fetch(API.auth.me, { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data?.user) startSession(data.user); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    const init = async () => {
+      // skipAuthCheck — 401 here just means no active session, not an error
+      const data = await execute<{ user: SessionUser }>(API.auth.me, { skipAuthCheck: true });
+      if (data?.user) startSession(data.user);
+      setLoading(false);
+    };
 
-    return () => { closeSSE(); stopActivityTracking(); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    init().catch(console.error);
+    return () => activity.stop();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── Auth actions ─────────────────────────────────────────────────────
   async function signInWithPassword(email: string, password: string) {
     const idToken = await signInWithEmail(email, password);
-    const res = await fetch(API.auth.login, {
+    // skipAuthCheck — no session cookie yet at login time
+    const data = await execute<{ user: SessionUser }>(API.auth.login, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ idToken }),
+      skipAuthCheck: true,
     });
-    if (!res.ok) throw new Error("Login failed");
-    const data = await res.json();
+    if (!data?.user) throw new Error("Login failed");
     startSession(data.user);
   }
 
@@ -141,13 +93,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    performLogout(false);
+    await performLogout(false);
   }
 
-  function dismissWarning() {
+  async function dismissWarning() {
     setShowWarning(false);
-    resetIdleTimers();
-    fetch(API.auth.heartbeat, { method: "POST", credentials: "include" }).catch(() => {});
+    activity.resetIdleTimers();
+    await execute(API.auth.heartbeat, { method: "POST" });
   }
 
   return (

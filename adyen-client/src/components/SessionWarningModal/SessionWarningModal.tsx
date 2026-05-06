@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { WARNING_COUNTDOWN_S } from "../../constants/sessionConfig";
 import "./SessionWarningModal.css";
-
-const COUNTDOWN_SECONDS = 120;
 
 export default function SessionWarningModal() {
   const { showWarning, dismissWarning, signOut } = useAuth();
-  const [seconds, setSeconds] = useState(COUNTDOWN_SECONDS);
+  const [seconds, setSeconds] = useState(WARNING_COUNTDOWN_S);
 
   useEffect(() => {
-    if (!showWarning) { setSeconds(COUNTDOWN_SECONDS); return; }
+    if (!showWarning) return;
 
     const interval = setInterval(() => {
       setSeconds((s) => {
@@ -18,7 +17,10 @@ export default function SessionWarningModal() {
       });
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      setSeconds(WARNING_COUNTDOWN_S); // reset after modal closes
+    };
   }, [showWarning, signOut]);
 
   if (!showWarning) return null;

@@ -9,6 +9,7 @@ import "@adyen/adyen-web/styles/adyen.css";
 import "./Checkout.css";
 import type { Product } from "../../data/products";
 import { API } from "../../constants/api";
+import { useFetch } from "../../hooks/useFetch";
 
 const CLIENT_KEY = import.meta.env.VITE_ADYEN_CLIENT_KEY;
 const API_URL =
@@ -23,6 +24,7 @@ interface CheckoutProps {
 }
 
 function Checkout({ product }: CheckoutProps) {
+  const { execute } = useFetch();
   const dropinContainerRef = useRef<HTMLDivElement>(null);
   const dropinRef = useRef<InstanceType<typeof Dropin> | null>(null);
   const [state, setState] = useState<CheckoutState>("loading");
@@ -76,7 +78,7 @@ function Checkout({ product }: CheckoutProps) {
           // Browser flow
           sendLog("Fetching session from API");
 
-          const response = await fetch(`${API_URL}/sessions`, {
+          const response = await execute<{ id: string; sessionData: string }>(`${API_URL}/sessions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -88,11 +90,11 @@ function Checkout({ product }: CheckoutProps) {
 
           if (cancelled) return;
 
-          const data = await response.json();
+          if (!response) throw new Error("Failed to fetch session");
           sendLog("Session fetched successfully");
 
-          id = data.id;
-          sessionData = data.sessionData;
+          id = response.id;
+          sessionData = response.sessionData;
         }
 
         sendLog("Initializing AdyenCheckout");
@@ -176,7 +178,7 @@ function Checkout({ product }: CheckoutProps) {
       cancelled = true;
       dropinRef.current?.unmount();
     };
-  }, [product, handleReady, handleInitError]);
+  }, [product, handleReady, handleInitError, execute]);
 
   if (state === "success") {
     return (
