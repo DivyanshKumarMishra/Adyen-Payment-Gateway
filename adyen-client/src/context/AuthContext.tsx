@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { handleRedirectResult, signInWithSAML, signInWithEmail, registerWithEmail, signOut as firebaseSignOut } from "../firebase/auth";
 import { API } from "../constants/api";
 import { useActivityTracking } from "../hooks/useActivityTracking";
@@ -37,8 +37,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessionExpired, setExpired]  = useState(false);
   const [showWarning, setShowWarning] = useState(false);
 
-  // absoluteExpiresAt is needed in heartbeat interval — keep in ref to avoid stale closures
-  const absoluteExpiresAtRef = useRef<string>("");
 
   const activity = useActivityTracking({
     onWarning: () => setShowWarning(true),
@@ -61,7 +59,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [performLogout]);
 
   function startSession({ user: sessionUser, idleExpiresAt, absoluteExpiresAt }: SessionData) {
-    absoluteExpiresAtRef.current = absoluteExpiresAt;
     setUser(sessionUser);
     setExpired(false);
     setShowWarning(false);
@@ -105,12 +102,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function dismissWarning() {
     setShowWarning(false);
-    // Force a heartbeat — server returns fresh idleExpiresAt to resync timers
-    const res = await execute<{ ok: boolean; idleExpiresAt: string }>(
+    // Force a heartbeat — server returns fresh idleExpiresAt + absoluteExpiresAt to resync timers
+    const res = await execute<{ ok: boolean; idleExpiresAt: string; absoluteExpiresAt: string }>(
       API.auth.heartbeat, { method: "POST" }
     );
-    if (res?.ok && res.idleExpiresAt) {
-      activity.updateIdleExpiry(res.idleExpiresAt, absoluteExpiresAtRef.current);
+    if (res?.ok && res.idleExpiresAt && res.absoluteExpiresAt) {
+      activity.updateExpiry(res.idleExpiresAt, res.absoluteExpiresAt);
     }
   }
 

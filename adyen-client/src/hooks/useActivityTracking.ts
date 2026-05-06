@@ -10,6 +10,12 @@ interface Options {
   isPaused: boolean;
 }
 
+interface HeartbeatResponse {
+  ok: boolean;
+  idleExpiresAt: string;
+  absoluteExpiresAt: string;
+}
+
 export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) {
   const { execute } = useFetch();
 
@@ -20,7 +26,7 @@ export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) 
     onLogoutRef.current  = onLogout;
   }, [onWarning, onLogout]);
 
-  const isPausedRef    = useRef(isPaused);
+  const isPausedRef = useRef(isPaused);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
   const warningTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -28,7 +34,6 @@ export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) 
   const heartbeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const isActiveRef    = useRef(false);
 
-  // Sets precise timers from server-provided timestamps
   const scheduleTimers = useCallback((idleExpiresAt: string, absoluteExpiresAt: string) => {
     if (warningTimer.current) clearTimeout(warningTimer.current);
     if (logoutTimer.current)  clearTimeout(logoutTimer.current);
@@ -37,13 +42,13 @@ export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) 
     const absoluteMs = new Date(absoluteExpiresAt).getTime() - Date.now();
 
     if (isNaN(idleMs) || isNaN(absoluteMs)) {
-      console.error("[Activity] Invalid expiry timestamps received from server — aborting timer setup", { idleExpiresAt, absoluteExpiresAt });
+      console.error("[Activity] Invalid expiry timestamps from server", { idleExpiresAt, absoluteExpiresAt });
       return;
     }
 
-    const expiryMs    = Math.min(idleMs, absoluteMs);
-    const warningMs   = expiryMs - WARNING_BUFFER_MS;
-    const constraint  = idleMs < absoluteMs ? "idle" : "absolute";
+    const expiryMs   = Math.min(idleMs, absoluteMs);
+    const warningMs  = expiryMs - WARNING_BUFFER_MS;
+    const constraint = idleMs < absoluteMs ? "idle" : "absolute";
 
     console.log(`[Activity] Timers set — expiry in ${Math.round(expiryMs / 1000)}s (${constraint}), warning in ${Math.round(warningMs / 1000)}s`);
 
@@ -53,7 +58,6 @@ export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) 
         onWarningRef.current();
       }, warningMs);
     } else {
-      // Absolute expiry is closer than the warning buffer — show modal immediately
       console.log("[Activity] Absolute expiry imminent — showing modal immediately");
       onWarningRef.current();
     }
@@ -64,14 +68,13 @@ export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) 
     }, Math.max(expiryMs, 0));
   }, []);
 
-  // Called on heartbeat response — updates idle expiry timer only
-  const updateIdleExpiry = useCallback((idleExpiresAt: string, absoluteExpiresAt: string) => {
+  // Called on dismissWarning — uses fresh server timestamps to resync timers
+  const updateExpiry = useCallback((idleExpiresAt: string, absoluteExpiresAt: string) => {
     if (isPausedRef.current) return;
-    console.log(`[Activity] Idle expiry updated from server — ${idleExpiresAt}`);
+    console.log(`[Activity] Expiry updated from server — idle: ${idleExpiresAt}, absolute: ${absoluteExpiresAt}`);
     scheduleTimers(idleExpiresAt, absoluteExpiresAt);
   }, [scheduleTimers]);
 
-  // DOM events only mark the user as active — timers are driven by server timestamps
   const markActive = useCallback(() => {
     if (isPausedRef.current) return;
     isActiveRef.current = true;
@@ -93,12 +96,10 @@ export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) 
       }
       isActiveRef.current = false;
       console.log("[Heartbeat] User was active — sending heartbeat to server");
-      const res = await execute<{ ok: boolean; idleExpiresAt: string }>(
-        API.auth.heartbeat, { method: "POST" }
-      );
-      if (res?.ok && res.idleExpiresAt) {
-        console.log("[Heartbeat] Server responded ok — updating idle expiry");
-        scheduleTimers(res.idleExpiresAt, absoluteExpiresAt);
+      const res = await execute<HeartbeatResponse>(API.auth.heartbeat, { method: "POST" });
+      if (res?.ok && res.idleExpiresAt && res.absoluteExpiresAt) {
+        console.log("[Heartbeat] Server responded ok — resyncing timers");
+        scheduleTimers(res.idleExpiresAt, res.absoluteExpiresAt);
       }
     }, HEARTBEAT_MS);
   }, [execute, markActive, scheduleTimers]);
@@ -111,5 +112,5 @@ export function useActivityTracking({ onWarning, onLogout, isPaused }: Options) 
     if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
   }, [markActive]);
 
-  return { start, stop, updateIdleExpiry };
+  return { start, stop, updateExpiry };
 }
