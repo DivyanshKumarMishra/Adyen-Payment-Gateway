@@ -34,7 +34,7 @@ const login = async (req, res) => {
         path: "/",
       })
       .json({
-        user:              { uid, email },
+        user:              { email },
         idleExpiresAt:     idleExpiresAt.toISOString(),
         absoluteExpiresAt: absoluteExpiresAt.toISOString(),
       });
