@@ -1,13 +1,12 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Pool } from "pg";
-import { PG_POOL } from "../database/database.module";
+import { PrismaService } from "../database/prisma.service";
 
 @Injectable()
 export class HeartbeatService {
   constructor(
     private config: ConfigService,
-    @Inject(PG_POOL) private pool: Pool,
+    private prisma: PrismaService,
   ) {}
 
   async beat(sid: string) {
@@ -15,31 +14,32 @@ export class HeartbeatService {
 
     console.log(`[Heartbeat] Received for session ${sid} — updating last_active_at`);
 
-    const { rows } = await this.pool
-      .query(
-        `UPDATE sessions SET last_active_at = now() WHERE id = $1 RETURNING last_active_at, absolute_expires_at`,
-        [sid],
-      )
-      .catch((err) => {
-        console.error("[Heartbeat] DB update failed:", err);
-        return { rows: [] };
-      });
+    // $queryRaw used here because Prisma's update() sets lastActiveAt from Node clock.
+    // We need now() from the DB clock to stay consistent with session validation.
+    const rows = await this.prisma.$queryRaw<
+      { last_active_at: Date; absolute_expires_at: Date }[]
+    >`
+      UPDATE sessions
+      SET last_active_at = now()
+      WHERE id = ${sid}::uuid
+      RETURNING last_active_at, absolute_expires_at
+    `;
 
     if (!rows.length) return null;
 
     const { last_active_at, absolute_expires_at } = rows[0];
     const idleExpiresAt = new Date(
-      new Date(last_active_at).getTime() + idleTimeoutMinutes * 60 * 1000,
+      last_active_at.getTime() + idleTimeoutMinutes * 60 * 1000,
     );
 
     console.log(
-      `[Heartbeat] DB updated — idleExpiresAt: ${idleExpiresAt.toISOString()}, absoluteExpiresAt: ${new Date(absolute_expires_at).toISOString()}`,
+      `[Heartbeat] DB updated — idleExpiresAt: ${idleExpiresAt.toISOString()}, absoluteExpiresAt: ${absolute_expires_at.toISOString()}`,
     );
 
     return {
       ok: true,
       idleExpiresAt: idleExpiresAt.toISOString(),
-      absoluteExpiresAt: new Date(absolute_expires_at).toISOString(),
+      absoluteExpiresAt: absolute_expires_at.toISOString(),
     };
   }
 }

@@ -1,0 +1,20 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id")
+  email             String
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  lastActiveAt      DateTime  @default(now()) @map("last_active_at") @db.Timestamptz
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz
+  invalidatedAt     DateTime? @map("invalidated_at") @db.Timestamptz
+
+  @@map("sessions")
+}

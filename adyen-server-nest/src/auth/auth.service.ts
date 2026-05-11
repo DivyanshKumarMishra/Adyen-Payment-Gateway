@@ -1,15 +1,15 @@
-import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Pool } from "pg";
 import * as admin from "firebase-admin";
-import { PG_POOL } from "../database/database.module";
+import { Inject } from "@nestjs/common";
 import { FIREBASE_ADMIN } from "../firebase/firebase.module";
+import { PrismaService } from "../database/prisma.service";
 
 @Injectable()
 export class AuthService {
   constructor(
     private config: ConfigService,
-    @Inject(PG_POOL) private pool: Pool,
+    private prisma: PrismaService,
     @Inject(FIREBASE_ADMIN) private firebaseAdmin: typeof admin,
   ) {}
 
@@ -26,20 +26,17 @@ export class AuthService {
     const idleTimeoutMinutes = this.config.get<number>("session.idleTimeoutMinutes");
     const absoluteExpiresAt = new Date(Date.now() + absoluteMaxHours * 60 * 60 * 1000);
 
-    const { rows } = await this.pool.query(
-      `INSERT INTO sessions (user_id, email, absolute_expires_at)
-       VALUES ($1, $2, $3)
-       RETURNING id, last_active_at`,
-      [uid, email, absoluteExpiresAt],
-    );
+    const session = await this.prisma.session.create({
+      data: { userId: uid, email, absoluteExpiresAt },
+      select: { id: true, lastActiveAt: true },
+    });
 
-    const { id: sid, last_active_at } = rows[0];
     const idleExpiresAt = new Date(
-      new Date(last_active_at).getTime() + idleTimeoutMinutes * 60 * 1000,
+      session.lastActiveAt.getTime() + idleTimeoutMinutes * 60 * 1000,
     );
 
     return {
-      sid,
+      sid: session.id,
       absoluteMaxHours,
       user: { email },
       idleExpiresAt: idleExpiresAt.toISOString(),
@@ -49,23 +46,23 @@ export class AuthService {
 
   async logout(sid: string | undefined) {
     if (sid) {
-      await this.pool
-        .query(`UPDATE sessions SET invalidated_at = now() WHERE id = $1`, [sid])
+      await this.prisma.session
+        .update({ where: { id: sid }, data: { invalidatedAt: new Date() } })
         .catch(console.error);
     }
   }
 
   getMe(session: any) {
-    const { user_id: uid, email, last_active_at, absolute_expires_at } = session;
+    const { email, lastActiveAt, absoluteExpiresAt } = session;
     const idleTimeoutMinutes = this.config.get<number>("session.idleTimeoutMinutes");
     const idleExpiresAt = new Date(
-      new Date(last_active_at).getTime() + idleTimeoutMinutes * 60 * 1000,
+      new Date(lastActiveAt).getTime() + idleTimeoutMinutes * 60 * 1000,
     );
 
     return {
       user: { email },
       idleExpiresAt: idleExpiresAt.toISOString(),
-      absoluteExpiresAt: new Date(absolute_expires_at).toISOString(),
+      absoluteExpiresAt: new Date(absoluteExpiresAt).toISOString(),
     };
   }
 }
